@@ -16,9 +16,10 @@ Or without Homebrew:
 curl -fsSL https://raw.githubusercontent.com/cifarra/homebrew-lupa/main/install.sh | sh
 ```
 
-The curl installer puts `lupa` in `~/.local/bin`; add `--service` (`| sh -s -- --service`)
-to also run it always-on via launchd, `--uninstall` to remove it (data stays).
-Re-running upgrades in place.
+The curl installer puts `lupa` in `~/.local/bin`. Flags (`| sh -s -- <flag>`):
+`--service` runs it always-on from login; `--daemon` runs it from **boot** with
+no login needed (headless Mac minis; uses sudo); `--uninstall` removes it
+(data stays). Re-running upgrades in place and restarts the service.
 
 ## Configure
 

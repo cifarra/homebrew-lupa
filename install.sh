@@ -2,11 +2,12 @@
 # Lupa server installer — CLI + REST API + MCP, no Homebrew required.
 #
 #   curl -fsSL https://raw.githubusercontent.com/cifarra/homebrew-lupa/main/install.sh | sh
-#   curl -fsSL .../install.sh | sh -s -- --service     # also run always-on (launchd)
-#   curl -fsSL .../install.sh | sh -s -- --uninstall   # remove (keeps ~/.lupa data)
+#   ... | sh -s -- --service     # also run always-on (starts at login)
+#   ... | sh -s -- --daemon      # always-on at BOOT, no login needed (uses sudo; headless minis)
+#   ... | sh -s -- --uninstall   # remove (keeps ~/.lupa data)
 #
 # Installs to ~/.local/share/lupa with a `lupa` shim in ~/.local/bin.
-# Re-running upgrades in place (a running service is restarted).
+# Re-running upgrades in place and restarts a running service/daemon.
 set -eu
 
 REPO="cifarra/homebrew-lupa"
@@ -16,20 +17,43 @@ PREFIX="${LUPA_PREFIX:-$HOME/.local}"
 PAYLOAD="$PREFIX/share/lupa"
 SHIM="$PREFIX/bin/lupa"
 LABEL="com.lupa.server"
-PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
+AGENT_PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
+DAEMON_PLIST="/Library/LaunchDaemons/$LABEL.plist"
 
 if [ "$(uname -s)" != "Darwin" ] || [ "$(uname -m)" != "arm64" ]; then
     echo "lupa-server supports Apple Silicon macOS only." >&2
     exit 1
 fi
 
+stop_agent() { launchctl bootout "gui/$(id -u)/$LABEL" 2>/dev/null || true; }
+stop_daemon() {
+    sudo launchctl bootout "system/$LABEL" 2>/dev/null || true
+    i=0
+    while sudo launchctl print "system/$LABEL" >/dev/null 2>&1 && [ $i -lt 15 ]; do
+        i=$((i + 1)); sleep 1
+    done
+}
+
 if [ "${1:-}" = "--uninstall" ]; then
-    launchctl bootout "gui/$(id -u)/$LABEL" 2>/dev/null || true
-    rm -f "$PLIST" "$SHIM"
+    stop_agent
+    rm -f "$AGENT_PLIST" "$SHIM"
+    if [ -f "$DAEMON_PLIST" ]; then
+        stop_daemon
+        sudo rm -f "$DAEMON_PLIST"
+    fi
     rm -rf "$PAYLOAD"
     echo "lupa removed. Your data and config (~/.lupa) were left untouched."
     exit 0
 fi
+
+# Mode: an explicit flag wins; otherwise keep whatever is already installed.
+mode=none
+[ -f "$AGENT_PLIST" ] && mode=agent
+[ -f "$DAEMON_PLIST" ] && mode=daemon
+case "${1:-}" in
+    --service) mode=agent ;;
+    --daemon) mode=daemon ;;
+esac
 
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
@@ -40,11 +64,8 @@ mkdir -p "$tmp/payload" "$PREFIX/bin" "$(dirname "$PAYLOAD")"
 tar -xzf "$tmp/$ASSET" -C "$tmp/payload"
 
 # A running service must not keep executing a half-replaced payload.
-service_was_running=0
-if launchctl print "gui/$(id -u)/$LABEL" >/dev/null 2>&1; then
-    service_was_running=1
-    launchctl bootout "gui/$(id -u)/$LABEL" 2>/dev/null || true
-fi
+stop_agent
+[ -f "$DAEMON_PLIST" ] && stop_daemon
 
 rm -rf "$PAYLOAD"
 mv "$tmp/payload" "$PAYLOAD"
@@ -62,9 +83,8 @@ case ":$PATH:" in
     *) echo "NOTE: $PREFIX/bin is not on your PATH. Add:  export PATH=\"$PREFIX/bin:\$PATH\"" ;;
 esac
 
-if [ "${1:-}" = "--service" ] || [ "$service_was_running" = 1 ]; then
-    mkdir -p "$HOME/.lupa/logs" "$HOME/Library/LaunchAgents"
-    cat > "$PLIST" <<EOF
+write_plist() {
+    cat <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -74,6 +94,8 @@ if [ "${1:-}" = "--service" ] || [ "$service_was_running" = 1 ]; then
     <array><string>$SHIM</string><string>serve</string></array>
     <key>EnvironmentVariables</key>
     <dict><key>HOME</key><string>$HOME</string></dict>
+    $1
+    <key>WorkingDirectory</key><string>$HOME</string>
     <key>RunAtLoad</key><true/>
     <key>KeepAlive</key><true/>
     <key>ThrottleInterval</key><integer>10</integer>
@@ -82,12 +104,28 @@ if [ "${1:-}" = "--service" ] || [ "$service_was_running" = 1 ]; then
 </dict>
 </plist>
 EOF
-    launchctl bootstrap "gui/$(id -u)" "$PLIST"
-    echo "Service running (starts at login). Logs: ~/.lupa/logs/server.log"
-else
-    echo "Run the server:  lupa serve"
-    echo "Always-on:       re-run this installer with --service"
-fi
+}
+
+case "$mode" in
+    agent)
+        mkdir -p "$HOME/.lupa/logs" "$HOME/Library/LaunchAgents"
+        write_plist "" > "$AGENT_PLIST"
+        launchctl bootstrap "gui/$(id -u)" "$AGENT_PLIST"
+        echo "Service running (starts at login). Logs: ~/.lupa/logs/server.log"
+        ;;
+    daemon)
+        mkdir -p "$HOME/.lupa/logs"
+        write_plist "<key>UserName</key><string>$(id -un)</string>" | sudo tee "$DAEMON_PLIST" >/dev/null
+        sudo chown root:wheel "$DAEMON_PLIST"
+        sudo chmod 644 "$DAEMON_PLIST"
+        sudo launchctl bootstrap system "$DAEMON_PLIST"
+        echo "Daemon running (starts at boot, no login needed). Logs: ~/.lupa/logs/server.log"
+        ;;
+    none)
+        echo "Run the server:  lupa serve"
+        echo "Always-on:       re-run this installer with --service (login) or --daemon (boot)"
+        ;;
+esac
 
 cat <<'EOF'
 
