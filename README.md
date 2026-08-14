@@ -28,25 +28,30 @@ One file: `~/.lupa/config.yaml` (created on first run).
 ```yaml
 server:
   port: 54321
-  listen_on_network: true     # serve on your LAN (default: localhost only)
+  listen_on_network: false    # see the warning below before setting true
   collections:                # folders to index and serve
     - /Volumes/images/photos
     - /Volumes/images/screenshots
 ```
 
-Every folder in `collections` is registered on boot and indexed in the
-background — add a folder, restart the service, done.
+Every folder in `collections` is registered on boot and new files are
+indexed in the background — add a folder, restart the service, done.
+
+> **`listen_on_network: true` exposes an unauthenticated API.** Anyone on
+> the network can read every indexed image and add/remove collections. Use
+> it on trusted home networks only; for remote access prefer an SSH tunnel
+> (`ssh -N -L 54321:127.0.0.1:54321 <host>`) or Tailscale.
 
 ## Run
 
 ```sh
-brew services start lupa        # always-on, starts at login
-sudo brew services start lupa   # headless Mac mini: starts at boot, no login needed
+brew services start lupa                # always-on, starts at login
+curl -fsSL .../install.sh | sh -s -- --daemon   # headless mini: starts at boot, no login
 ```
 
 - REST API: `http://<host>:54321/api/...`
-- MCP: `http://127.0.0.1:54321/mcp` — localhost-only by design; from another
-  machine tunnel it: `ssh -N -L 54321:127.0.0.1:54321 <host>`
+- MCP: `http://127.0.0.1:54321/mcp` — guarded against browser/DNS-rebinding
+  access; reach it remotely through the SSH tunnel above
 - CLI: `lupa search "golden hour"`, `lupa --help`
 
 Apple Silicon macOS only (CLIP runs on the GPU via MPS).

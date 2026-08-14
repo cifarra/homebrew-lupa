@@ -24,6 +24,10 @@ if [ "$(uname -s)" != "Darwin" ] || [ "$(uname -m)" != "arm64" ]; then
     echo "lupa-server supports Apple Silicon macOS only." >&2
     exit 1
 fi
+if [ "$(id -u)" = "0" ]; then
+    echo "Run as a normal user, not root — --daemon uses sudo only where needed." >&2
+    exit 1
+fi
 
 stop_agent() { launchctl bootout "gui/$(id -u)/$LABEL" 2>/dev/null || true; }
 stop_daemon() {
@@ -33,14 +37,36 @@ stop_daemon() {
         i=$((i + 1)); sleep 1
     done
 }
+stop_lupa_qdrant() {
+    # The sidecar leaves its qdrant running detached; without this, an
+    # upgraded install keeps executing the OLD qdrant binary until reboot.
+    # Only called when a lupa service existed — never on a CLI-only machine
+    # where a desktop Lupa app may own the running qdrant.
+    pid_file="$HOME/.lupa/qdrant.pid"
+    [ -f "$pid_file" ] || return 0
+    pid=$(cat "$pid_file" 2>/dev/null) || return 0
+    if [ -n "$pid" ] && ps -p "$pid" -o command= 2>/dev/null | grep -q qdrant; then
+        kill "$pid" 2>/dev/null || true
+        i=0
+        while ps -p "$pid" >/dev/null 2>&1 && [ $i -lt 10 ]; do
+            i=$((i + 1)); sleep 1
+        done
+    fi
+    rm -f "$pid_file"
+}
+
+had_agent=0; had_daemon=0
+[ -f "$AGENT_PLIST" ] && had_agent=1
+[ -f "$DAEMON_PLIST" ] && had_daemon=1
 
 if [ "${1:-}" = "--uninstall" ]; then
     stop_agent
     rm -f "$AGENT_PLIST" "$SHIM"
-    if [ -f "$DAEMON_PLIST" ]; then
+    if [ "$had_daemon" = 1 ]; then
         stop_daemon
         sudo rm -f "$DAEMON_PLIST"
     fi
+    [ "$had_agent$had_daemon" != "00" ] && stop_lupa_qdrant
     rm -rf "$PAYLOAD"
     echo "lupa removed. Your data and config (~/.lupa) were left untouched."
     exit 0
@@ -48,8 +74,8 @@ fi
 
 # Mode: an explicit flag wins; otherwise keep whatever is already installed.
 mode=none
-[ -f "$AGENT_PLIST" ] && mode=agent
-[ -f "$DAEMON_PLIST" ] && mode=daemon
+[ "$had_agent" = 1 ] && mode=agent
+[ "$had_daemon" = 1 ] && mode=daemon
 case "${1:-}" in
     --service) mode=agent ;;
     --daemon) mode=daemon ;;
@@ -60,12 +86,22 @@ trap 'rm -rf "$tmp"' EXIT
 
 echo "Downloading lupa-server..."
 curl -fL --progress-bar "$URL" -o "$tmp/$ASSET"
+if curl -fsSL "$URL.sha256" -o "$tmp/$ASSET.sha256" 2>/dev/null; then
+    want=$(cut -d' ' -f1 "$tmp/$ASSET.sha256")
+    got=$(shasum -a 256 "$tmp/$ASSET" | cut -d' ' -f1)
+    if [ "$want" != "$got" ]; then
+        echo "Checksum mismatch (expected $want, got $got) — aborting." >&2
+        exit 1
+    fi
+fi
 mkdir -p "$tmp/payload" "$PREFIX/bin" "$(dirname "$PAYLOAD")"
 tar -xzf "$tmp/$ASSET" -C "$tmp/payload"
 
-# A running service must not keep executing a half-replaced payload.
+# A running service must not keep executing a half-replaced payload — and
+# its detached qdrant must die too, or the new bundled qdrant never runs.
 stop_agent
-[ -f "$DAEMON_PLIST" ] && stop_daemon
+[ "$had_daemon" = 1 ] && stop_daemon
+[ "$had_agent$had_daemon" != "00" ] && stop_lupa_qdrant
 
 rm -rf "$PAYLOAD"
 mv "$tmp/payload" "$PAYLOAD"
@@ -133,7 +169,11 @@ Configure ~/.lupa/config.yaml (created on first run):
 
   server:
     port: 54321
-    listen_on_network: true     # serve on your LAN (default: localhost only)
+    listen_on_network: false    # true = serve on your network. The API has
+                                # NO authentication: anyone on the network can
+                                # read every indexed image and modify
+                                # collections. Trusted home networks only —
+                                # otherwise use an SSH tunnel or Tailscale.
     collections:                # folders to index and serve
       - /Volumes/images/photos
 EOF

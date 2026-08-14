@@ -1,6 +1,6 @@
 class Lupa < Formula
   desc "Local-first semantic image search server: CLI + REST API + MCP (CLIP + Qdrant)"
-  homepage "https://github.com/jmedina21/lupa-tauri"
+  homepage "https://github.com/cifarra/homebrew-lupa"
   url "https://github.com/cifarra/homebrew-lupa/releases/download/v0.4.0/lupa-server-0.4.0-aarch64-apple-darwin.tar.gz"
   sha256 "0761a8e82be2e38407ebd4185de165a833f28ec3723b300b999987a4587767d5"
   version "0.4.0"
@@ -27,17 +27,20 @@ class Lupa < Formula
 
         server:
           port: 54321
-          listen_on_network: true     # serve on your LAN (default: localhost only)
+          listen_on_network: false    # true = serve on your network — the API
+                                      # has NO auth; trusted networks only
           collections:                # folders to index and serve
             - /Volumes/images/photos
 
-      Then start it (always-on, restarts automatically):
+      Then start it (always-on from login, restarts automatically):
 
-        brew services start lupa        # runs at login
-        sudo brew services start lupa   # headless server: runs at boot, no login needed
+        brew services start lupa
 
-      The MCP endpoint is http://127.0.0.1:54321/mcp — localhost-only by design.
-      From another machine: ssh -N -L 54321:127.0.0.1:54321 <host>
+      For boot-time start with no login (headless minis), use the curl
+      installer's --daemon mode instead — see the tap README.
+
+      MCP endpoint: http://127.0.0.1:54321/mcp (guarded against browser/DNS
+      rebinding; from another machine: ssh -N -L 54322:127.0.0.1:54321 <host>)
 
       CLI: lupa search "golden hour"   (see lupa --help)
     EOS
