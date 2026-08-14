@@ -1,0 +1,49 @@
+class Lupa < Formula
+  desc "Local-first semantic image search server: CLI + REST API + MCP (CLIP + Qdrant)"
+  homepage "https://github.com/jmedina21/lupa-tauri"
+  url "https://github.com/cifarra/homebrew-lupa/releases/download/v0.4.0/lupa-server-0.4.0-aarch64-apple-darwin.tar.gz"
+  sha256 "0761a8e82be2e38407ebd4185de165a833f28ec3723b300b999987a4587767d5"
+  version "0.4.0"
+
+  depends_on arch: :arm64
+  depends_on :macos
+
+  def install
+    libexec.install "python-sidecar", "qdrant"
+    (bin/"lupa").write_env_script libexec/"python-sidecar/python-sidecar-aarch64-apple-darwin",
+                                  QDRANT_PATH: libexec/"qdrant/qdrant"
+  end
+
+  service do
+    run [opt_bin/"lupa", "serve"]
+    keep_alive true
+    log_path var/"log/lupa.log"
+    error_log_path var/"log/lupa.log"
+  end
+
+  def caveats
+    <<~EOS
+      Configure the server in ~/.lupa/config.yaml (created on first run):
+
+        server:
+          port: 54321
+          listen_on_network: true     # serve on your LAN (default: localhost only)
+          collections:                # folders to index and serve
+            - /Volumes/images/photos
+
+      Then start it (always-on, restarts automatically):
+
+        brew services start lupa        # runs at login
+        sudo brew services start lupa   # headless server: runs at boot, no login needed
+
+      The MCP endpoint is http://127.0.0.1:54321/mcp — localhost-only by design.
+      From another machine: ssh -N -L 54321:127.0.0.1:54321 <host>
+
+      CLI: lupa search "golden hour"   (see lupa --help)
+    EOS
+  end
+
+  test do
+    assert_match "lupa", shell_output("#{bin}/lupa --help")
+  end
+end
