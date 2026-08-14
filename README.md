@@ -7,9 +7,18 @@ with CLIP embeddings and a bundled Qdrant.
 ## Install
 
 ```sh
-brew tap cifarra/lupa
-brew install lupa
+brew install cifarra/lupa/lupa
 ```
+
+Or without Homebrew:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/cifarra/homebrew-lupa/main/install.sh | sh
+```
+
+The curl installer puts `lupa` in `~/.local/bin`; add `--service` (`| sh -s -- --service`)
+to also run it always-on via launchd, `--uninstall` to remove it (data stays).
+Re-running upgrades in place.
 
 ## Configure
 
