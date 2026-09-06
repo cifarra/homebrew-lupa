@@ -1,9 +1,9 @@
 class Lupa < Formula
   desc "Local-first semantic image search server: CLI + REST API + MCP (CLIP + Qdrant)"
   homepage "https://github.com/cifarra/homebrew-lupa"
-  url "https://github.com/cifarra/homebrew-lupa/releases/download/v0.6.1/lupa-server-0.6.1-aarch64-apple-darwin.tar.gz"
-  sha256 "8b611220924a872bebaced1fd2751dff63cfdee54909985d5667878d6d942ab3"
-  version "0.6.1"
+  url "https://github.com/cifarra/homebrew-lupa/releases/download/v0.7.0/lupa-server-0.7.0-aarch64-apple-darwin.tar.gz"
+  sha256 "04edf6f3b8e995e2f210761cdc5d43fc45fa8198b4d883c2e69a41b400e347c5"
+  version "0.7.0"
 
   depends_on arch: :arm64
   depends_on :macos
